@@ -8,6 +8,7 @@ import org.http4s.*
 import io.circe.generic.auto.*
 import io.circe.syntax.*
 import org.http4s.blaze.server.BlazeServerBuilder
+import org.http4s.Http4s.http4sKleisliResponseSyntaxOptionT
 import org.http4s.dsl.*
 import org.http4s.dsl.impl.*
 import org.http4s.headers.*
@@ -78,7 +79,7 @@ object Http4sProject extends IOApp {
     import dsl._
 
     HttpRoutes.of[F] {
-      case GET -> Root / "movies" :? DirectorQueryParamMatcher(director) +& YearQueryParamMatcher(maybeYear) =>
+      case GET -> Root / "api" / "movies" :? DirectorQueryParamMatcher(director) +& YearQueryParamMatcher(maybeYear) =>
         val movieByDirector = findMoviesByDirector(director)
         maybeYear match {
           case Some(validatedYear) =>
@@ -94,7 +95,7 @@ object Http4sProject extends IOApp {
             )
           case None => Ok(movieByDirector.asJson)
         }
-      case GET -> Root / "movies" / UUIDVar(movieId) / "actors" =>
+      case GET -> Root / "api" /  "movies" / UUIDVar(movieId) / "actors" =>
         findMovieById(movieId).map(_.actors) match {
           case Some(actors) => Ok(actors.asJson)
           case _ => NotFound(s"No movie with id $movieId found in the database")
@@ -112,14 +113,14 @@ object Http4sProject extends IOApp {
   }
 
   val directorDetailsDB: mutable.Map[Director, DirectorDetails] =
-    mutable.Map(Director("Григорий", "Пупкин") -> DirectorDetails("Григорий", "Пупкин", "Hentai"))
+    mutable.Map(Director("Григорий", "Пупкин") -> DirectorDetails("Григорий", "Пупкин", "Fantasy"))
 
   def directorRoutes[F[_] : Monad : Async : Concurrent : Timer]: HttpRoutes[F] = {
     val dsl = Http4sDsl[F]
     import dsl._
 
     HttpRoutes.of[F] {
-      case GET -> Root / "director" / DirectorPath(director) =>
+      case GET -> Root / "api" / "admin" / "director" / DirectorPath(director) =>
         directorDetailsDB.get(director) match {
           case Some(dirDetails) => Ok(dirDetails.asJson)
           case _ => NotFound(s"No director '$director' found")
@@ -127,19 +128,19 @@ object Http4sProject extends IOApp {
     }
   }
 
-  def allRoutes[F[_] : Monad : Async : Concurrent : Timer]: HttpRoutes[F] = {
-    movieRoutes[F] <+> directorRoutes[F]
-  }
-
   def allRoutesComplete[F[_] : Monad : Async : Concurrent : Timer]: HttpApp[F] = {
     allRoutes[F].orNotFound
+  }
+
+  def allRoutes[F[_] : Monad : Async : Concurrent : Timer]: HttpRoutes[F] = {
+    movieRoutes[F] <+> directorRoutes[F]
   }
 
   override def run(args: List[String]): IO[ExitCode] = {
     val apis = Router(
       "/api" -> movieRoutes[IO],
       "/api/admin" -> directorRoutes[IO]
-    ).orNotFound
+    )
 
     BlazeServerBuilder[IO](global)
       .bindHttp(8080, "localhost")
